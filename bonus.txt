@@ -1,0 +1,10 @@
+Bonus
+Créer un middleware isAuthenticated pour vérifier que le créateur de l'annonce possède bien un compte.
+Faire en sorte que l'image d'une annonce s'enregistre sur cloudinary dans un dossier ayant ce chemin : /vinted/offers/5f042da1639b1c3c02314f6f 
+dans lequel on retrouve l'id de l'offre.
+Créer des routes pour permettre aux créateurs des annonces de pouvoir les modifier (méthode HTTP PUT) et les supprimer (méthode HTTP DELETE).
+Modifier votre route /signup pour permettre l'upload d'une photo de profil
+faire en sorte que le titre, la description et le prix soient limités à :
+description : 500 caractères
+title : 50 caractères
+price : 100000
