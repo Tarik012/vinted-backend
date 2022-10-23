@@ -7,6 +7,7 @@ const encBase64 = require("crypto-js/enc-base64"); // Sert à transformer l'encr
 const router = express.Router();
 
 const User = require("../models/User");
+const Offer = require("../models/Offer");
 
 const fileupload = require("express-fileupload"); //package pour upload files, permets aussi de le passage du form-data
 const cloudinary = require("cloudinary").v2; //service hébergeur fichiers
@@ -49,51 +50,60 @@ router.post("/user/signup", fileupload(), async (req, res) => {
       return res.status(400).json({ message: "Email not available !!" });
     }
 
-    let result = "";
-    //upload du fichier
-    if (req.files?.icon_profile) {
-      const pictureConverted = convertToBase64(req.files.icon_profile);
-      result = await cloudinary.uploader.upload(pictureConverted, {
-        folder: `vinted/signup`,
+    // l'utilisateur a-t-il bien envoyé les informations requises ?
+    if (email && password && username) {
+      // Si oui, on peut créer ce nouvel utilisateur
+
+      let result = "";
+      //upload du fichier
+      if (req.files?.icon_profile) {
+        const pictureConverted = convertToBase64(req.files.icon_profile);
+        result = await cloudinary.uploader.upload(pictureConverted, {
+          folder: `vinted/signup`,
+        });
+      }
+
+      //Générer un salt
+      const salt = uid2(16);
+      //console.log("salt=>", salt);
+
+      //Générer un hash
+      const hash = SHA256(salt + password).toString(encBase64);
+      //console.log("hash=>", hash);
+
+      //Générer un token
+      const token = uid2(64);
+      //console.log("token=>", token);
+
+      //enregistrer le nouvel utilisateur
+      const newUser = new User({
+        newsletter, // ou newsletter : newsletter
+        token,
+        hash,
+        salt,
+        email,
+        account: {
+          username: username,
+          avatar: result,
+        },
       });
+
+      // sauvegarder en base
+      await newUser.save();
+
+      // afficher un message en retour
+      res.status(200).json({
+        _id: newUser._id,
+        token,
+        email,
+        account: {
+          username: username,
+        },
+      });
+    } else {
+      // l'utilisateur n'a pas envoyé les informations requises ?
+      res.status(400).json({ message: "Missing parameters" });
     }
-
-    //Générer un salt
-    const salt = uid2(16);
-    //console.log("salt=>", salt);
-
-    //Générer un hash
-    const hash = SHA256(salt + password).toString(encBase64);
-    //console.log("hash=>", hash);
-
-    //Générer un token
-    const token = uid2(64);
-    //console.log("token=>", token);
-
-    //enregistrer le nouvel utilisateur
-    const newUser = new User({
-      newsletter, // ou newsletter : newsletter
-      token,
-      hash,
-      salt,
-      email,
-      account: {
-        username: username,
-        avatar: result,
-      },
-    });
-
-    // sauvegarder en base
-    await newUser.save();
-
-    // afficher un message en retour
-    res.status(200).json({
-      _id: newUser._id,
-      token,
-      account: {
-        username: username,
-      },
-    });
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }

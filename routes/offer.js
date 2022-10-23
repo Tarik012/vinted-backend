@@ -14,6 +14,7 @@ cloudinary.config({
 const router = express.Router();
 
 const Offer = require("../models/Offer");
+const User = require("../models/User");
 
 const isAuthenticated = require("../middlewares/isAuthenticated");
 
@@ -40,84 +41,132 @@ router.post(
   fileupload(), //me permets de récupérer req.body
   async (req, res) => {
     try {
-      const {
-        price,
-        condition,
-        city,
-        brand,
-        size,
-        color,
-        description,
-        picture,
-        title,
-      } = req.body;
-      //console.log("Infos du user =>", req.user);
-      //console.log("Contenu du body - form-data=>", req.body);
-      //console.log("Contenu du req.files.picture=>", req.files.picture);
+      const { title, description, price, brand, size, condition, color, city } =
+        req.body;
+      console.log(req.headers);
 
-      //conversion du fichier
-      const pictureConverted = convertToBase64(req.files.picture);
-      //console.log(pictureConverted);
-
-      //console.log(req.user);
-
-      let result = "";
-      //upload du fichier
-      if (req.files?.picture) {
-        result = await cloudinary.uploader.upload(pictureConverted, {
-          folder: `vinted/offers`,
+      if (title && price && req.files?.picture) {
+        // Création de la nouvelle annonce (sans l'image)
+        const newOffer = new Offer({
+          product_name: title,
+          product_description: description,
+          product_price: price,
+          product_details: [
+            { MARQUE: brand },
+            { TAILLE: size },
+            { ÉTAT: condition },
+            { COULEUR: color },
+            { EMPLACEMENT: city },
+          ],
+          owner: req.user,
         });
+
+        // Vérifier le type de fichier
+        if (
+          Array.isArray(req.files.picture) === true ||
+          req.files.picture.mimetype.slice(0, 5) !== "image"
+        ) {
+          res
+            .status(400)
+            .json({ message: "You must send a single image file !" });
+        } else {
+          // Envoi de l'image à cloudinary
+          const result = await cloudinary.uploader.upload(
+            convertToBase64(req.files.picture, "vinted_upload", {
+              folder: `api/vinted-v2/offers/${newOffer._id}`,
+              public_id: "preview",
+              cloud_name: "lereacteur",
+            })
+          );
+
+          // ajout de l'image dans newOffer
+          newOffer.product_image = result;
+          await newOffer.save();
+          res.json(newOffer);
+        }
+      } else {
+        res
+          .status(400)
+          .json({ message: "title, price and picture are required" });
       }
-
-      const newOffer = new Offer({
-        product_name: title,
-        product_description: description,
-        product_price: price,
-        product_details: [
-          { MARQUE: brand },
-          { TAILLE: size },
-          { ETAT: condition },
-          { COULEUR: color },
-          { EMPLACEMENT: city },
-        ],
-        owner: req.user,
-        product_image: result,
-      });
-
-      //console.log("result=>", result);
-
-      //console.log("New offer =>", newOffer);
-
-      await newOffer.save();
-
-      res.send(newOffer);
     } catch (error) {
+      console.log(error.message);
       res.status(400).json({ message: error.message });
     }
   }
 );
 
 /****************************************************************************************************************************/
-router.put("/offer/update", isAuthenticated, fileupload(), async (req, res) => {
-  try {
-    const { id, price } = req.body;
-    //console.log(req.body);
+router.put(
+  "/offer/update/:id",
+  isAuthenticated,
+  fileupload(),
+  async (req, res) => {
+    //console.log(req.params.id);
+    const offerToModify = await Offer.findById(req.params.id);
+    try {
+      if (req.body.title) {
+        offerToModify.product_name = req.body.title;
+      }
+      if (req.body.description) {
+        offerToModify.product_description = req.body.description;
+      }
+      if (req.body.price) {
+        offerToModify.product_price = req.body.price;
+      }
 
-    const updatedOffer = await Offer.findById(req.body.id);
+      const details = offerToModify.product_details;
+      //console.log(req.body);
+      //console.log(req.body.product_details[0].MARQUE);
+      //console.log(req.body.brand);
+      for (i = 0; i < details.length; i++) {
+        if (details[i].MARQUE) {
+          if (req.body.brand) {
+            details[i].MARQUE = req.body.brand;
+          }
+        }
+        if (details[i].TAILLE) {
+          if (req.body.size) {
+            details[i].TAILLE = req.body.size;
+          }
+        }
+        if (details[i].ÉTAT) {
+          if (req.body.condition) {
+            details[i].ÉTAT = req.body.condition;
+          }
+        }
+        if (details[i].COULEUR) {
+          if (req.body.color) {
+            details[i].COULEUR = req.body.color;
+          }
+        }
+        if (details[i].EMPLACEMENT) {
+          if (req.body.location) {
+            details[i].EMPLACEMENT = req.body.location;
+          }
+        }
+      }
 
-    if (!updatedOffer) {
-      return res.status(401).json({ error: "unable to modify this offer" });
+      if (req.files?.picture) {
+        const result = await cloudinary.uploader.upload(
+          convertToBase64(req.files.picture, {
+            public_id: `api/vinted/offers/${offerToModify._id}/preview`,
+          })
+        );
+        offerToModify.product_image = result;
+      }
+
+      //console.log(offerToModify);
+
+      await offerToModify.save();
+
+      res.status(200).json("Offer modified succesfully !");
+    } catch (error) {
+      console.log(error.message);
+      res.status(400).json({ error: error.message });
     }
-
-    updatedOffer.product_price = price;
-
-    await updatedOffer.save();
-
-    res.send(updatedOffer);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
   }
-});
+);
 
 /****************************************************************************************************************************/
 router.delete(
@@ -146,77 +195,77 @@ router.delete(
 /****************************************************************************************************************************/
 router.get("/offers", async (req, res) => {
   try {
-    const { title, priceMin, priceMax, sort, page, offersByPage } = req.query;
-
-    /* ou construire le filtre avec un filtre parent et des filtres enfant
-    
-    const filters = {};
-      const filter = {};
-
-  filter.product_price = {};
-  filter.product_price.$gte = 20;
-  filter.product_price.$lte = 50;
-
-  filters.product_price = filter.product_price;
-
-  console.log(filter);
-  */
-
     //console.log("req.query =>", req.query);
 
+    let { title, priceMin, priceMax, sort, page, offersByPage } = req.query;
+
+    // const filters = {};
+
+    // if (title) {
+    //   //console.log(value);
+    //   filters.product_name = new RegExp(title, "i");
+    //   //console.log(filters);
+    // }
+
+    // if (priceMin) {
+    //   filters.product_price = { $gte: Number(priceMin) };
+    //   //console.log(filters);
+    // }
+
+    // if (priceMax) {
+    //   if (!filters.product_price) {
+    //     filters.product_price = { $lte: Number(priceMax) };
+    //   } else {
+    //     filters.product_price.$lte = Number(priceMax);
+    //   }
+    // }
+
+    /* ou construire le filtre avec un filtre parent et des filtres enfant  */
+
     const filters = {};
 
-    if (title) {
-      //console.log(value);
-      filters.product_name = new RegExp(title, "i");
-      //console.log(filters);
+    filters.product_name = new RegExp(title, "i");
+
+    const filterPrice = {};
+    filterPrice.product_price = {};
+    filterPrice.product_price.$gte = Number(priceMin);
+    filterPrice.product_price.$lte = Number(priceMax);
+
+    filters.product_price = filterPrice.product_price;
+
+    const filterSort = {};
+    if (sort === "price-desc") filterSort.product_price = "desc";
+    if (sort === "price-asc") filterSort.product_price = "asc";
+
+    // console.log(filters);
+    // console.log(filterSort);
+
+    if (Number(page) < 1) {
+      page = 1;
+    } else {
+      page = Number(page);
     }
 
-    if (priceMin) {
-      filters.product_price = { $gte: Number(priceMin) };
-      //console.log(filters);
-    }
+    const limit = offersByPage; // je définis mon nombre d'articles par page à afficher
 
-    if (priceMax) {
-      if (!filters.product_price) {
-        filters.product_price = { $lte: Number(priceMax) };
-      } else {
-        filters.product_price.$lte = Number(priceMax);
-      }
-    }
-
-    const sortFilter = {};
-    if (sort === "price-desc") {
-      sortFilter.product_price = "desc";
-    } else if (sort === "price-asc") {
-      sortFilter.product_price = "asc";
-    }
-
-    //console.log(sortFilter);
-
-    //console.log("filters =>", filters);
-    //console.log("RangePrice =>", rangePrice);
-
-    const limit = 2; // je définis mon nombre d'articles par page à afficher
-    let pageRequired = 1;
-    if (page) {
-      pageRequired = Number(page);
-    }
-
-    const skip = (pageRequired - 1) * limit;
+    const skip = (page - 1) * limit; // ignorer les x résultats
 
     const offers = await Offer.find(filters)
-      .sort(sortFilter)
+      .sort(filterSort)
       .skip(skip)
       .limit(limit)
       .select("product_name product_price")
-      .populate("owner", "account _id");
+      .populate({ path: "owner", select: "account _id" });
 
-    const offerCount = await Offer.countDocuments();
-    //console.log(offerCount);
+    // cette ligne va nous retourner le nombre d'annonces trouvées en fonction des filtres
+    const offerCount = await Offer.countDocuments(filters);
+    console.log(offerCount);
 
     //console.log(offers);
-    res.json(offers);
+    res.json({
+      count: offerCount,
+      offers: offers,
+    });
 
     //res.send("OK");
   } catch (error) {
@@ -231,10 +280,10 @@ A METTRE EN DESSOUS DE LA ROUTE OFFER/PUBLISH
 router.get("/offer/:id", async (req, res) => {
   try {
     //console.log(req.params);
-    const offerById = await Offer.findById(req.params.id).populate(
-      "owner",
-      "account _id"
-    );
+    const offerById = await Offer.findById(req.params.id).populate({
+      path: "owner",
+      select: "account.username account.phone account.avatar",
+    });
     res.json(offerById);
   } catch (error) {
     res.status(400).json({ message: error.message });
